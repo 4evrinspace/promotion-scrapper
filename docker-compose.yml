@@ -1,0 +1,125 @@
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12-alpine
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+
+  normalizer:
+    build: .
+    command: python3 normalizer.py
+    restart: on-failure
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDIS_URL: redis://redis:6379/0
+      METRICS_PORT: 8002
+    depends_on:
+      - kafka
+      - redis
+
+  catalog-loader:
+    build: .
+    command: python3 catalog_loader.py /app/catalog/catalog.jsonl
+    profiles: [catalog]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./catalog:/app/catalog:ro
+    depends_on:
+      - redis
+
+  csv-sink:
+    build: .
+    command: python3 csv_sink.py
+    restart: on-failure
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CSV_FILE: /app/data/products.csv
+      METRICS_PORT: 8003
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - kafka
+
+  clickhouse-sink:
+    build: .
+    command: python3 clickhouse_sink.py
+    restart: on-failure
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      METRICS_PORT: 8004
+    depends_on:
+      - kafka
+      - clickhouse
+
+  api:
+    build: .
+    command: uvicorn api:app --host 0.0.0.0 --port 8080
+    restart: on-failure
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - kafka
+      - redis
+
+  scraper-lenta:
+    build: .
+    command: python3 tmp.py
+    restart: on-failure
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      METRICS_PORT: 8001
+      SCRAPE_INTERVAL_SECONDS: 3600
+    depends_on:
+      - kafka
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - normalizer
+      - csv-sink
+      - clickhouse-sink
+      - api
+      - scraper-lenta
+
+volumes:
+  clickhouse_data:
+  prometheus_data:
+  redis_data:

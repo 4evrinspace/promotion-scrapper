@@ -1,0 +1,9 @@
+beautifulsoup4==4.13.3
+cloudscraper==1.2.71
+clickhouse-connect==0.8.18
+confluent-kafka==2.8.2
+fastapi==0.115.12
+lxml==5.3.1
+prometheus-client==0.21.1
+redis==5.2.1
+uvicorn[standard]==0.34.0

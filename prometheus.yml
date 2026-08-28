@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: scrapers
+    static_configs:
+      - targets: ["scraper-lenta:8001"]
+  - job_name: normalizer
+    static_configs:
+      - targets: ["normalizer:8002"]
+  - job_name: sinks
+    static_configs:
+      - targets: ["csv-sink:8003", "clickhouse-sink:8004"]
+  - job_name: api
+    metrics_path: /metrics/
+    static_configs:
+      - targets: ["api:8080"]
