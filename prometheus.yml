@@ -10,7 +10,7 @@ scrape_configs:
       - targets: ["normalizer:8002"]
   - job_name: sinks
     static_configs:
-      - targets: ["csv-sink:8003", "clickhouse-sink:8004"]
+      - targets: ["clickhouse-sink:8003"]
   - job_name: api
     metrics_path: /metrics/
     static_configs:

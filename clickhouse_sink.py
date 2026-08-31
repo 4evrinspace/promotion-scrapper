@@ -1,5 +1,6 @@
 import json
 import os
+from decimal import Decimal
 
 import clickhouse_connect
 from confluent_kafka import Consumer
@@ -10,60 +11,34 @@ KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
 NORMALIZED_PRODUCTS_TOPIC = os.getenv("NORMALIZED_PRODUCTS_TOPIC")
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST")
 CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT"))
-CLICKHOUSE_DATABASE = os.getenv("CLICKHOUSE_DATABASE")
 METRICS_PORT = int(os.getenv("METRICS_PORT"))
+ROWS_WRITTEN = Counter("clickhouse_sink_rows_written_total", "")
 
-ROWS_INSERTED = Counter("clickhouse_sink_rows_inserted_total", "")
-
-TABLE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS product_prices (
+SQL = """
+CREATE TABLE IF NOT EXISTS products (
+    name String,
     shop LowCardinality(String),
-    source_product_id String,
-    canonical_id String,
-    normalized_name String,
-    name_match_method LowCardinality(String),
-    name_match_confidence Float32,
-    current_price_kopecks Nullable(UInt64),
-    old_price_kopecks Nullable(UInt64),
-    has_promotion Bool,
-    in_stock Bool,
-    source_url String,
-    collected_at DateTime64(3, 'UTC'),
-    normalized_at DateTime64(3, 'UTC')
+    date DateTime64(3, 'UTC'),
+    original_price Nullable(Decimal(12, 2)),
+    promotion_price Nullable(Decimal(12, 2))
 ) ENGINE = MergeTree
-ORDER BY (shop, source_product_id, collected_at)
+ORDER BY (date, shop, name)
 """
 
-COLUMN_NAMES = [
-    "shop",
-    "source_product_id",
-    "canonical_id",
-    "normalized_name",
-    "name_match_method",
-    "name_match_confidence",
-    "current_price_kopecks",
-    "old_price_kopecks",
-    "has_promotion",
-    "in_stock",
-    "source_url",
-    "collected_at",
-    "normalized_at",
-]
+FIELDS = ["name", "shop", "date", "original_price", "promotion_price"]
 
 
-def to_row(data):
-    res = []
-    for name in COLUMN_NAMES:
-        res.append(data.get(name))
-    return res
+def rubles(value):
+    if value is None:
+        return None
+    return Decimal(value) / Decimal(100)
 
 
 def main():
     start_http_server(METRICS_PORT)
-    client = clickhouse_connect.get_client(
-        host=CLICKHOUSE_HOST, port=CLICKHOUSE_PORT, database=CLICKHOUSE_DATABASE
-    )
-    client.command(TABLE_SCHEMA)
+    db = clickhouse_connect.get_client(host=CLICKHOUSE_HOST, port=CLICKHOUSE_PORT)
+    db.command(SQL)
+
     consumer = Consumer(
         {
             "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
@@ -82,9 +57,25 @@ def main():
                 print(msg.error())
                 continue
 
-            product = json.loads(msg.value())
-            client.insert("product_prices", [to_row(product)], column_names=COLUMN_NAMES)
-            ROWS_INSERTED.inc()
+            data = json.loads(msg.value())
+            old_price = data.get("old_price_kopecks")
+            current_price = data.get("current_price_kopecks")
+            if old_price is None:
+                old_price = current_price
+
+            promotion_price = None
+            if data.get("has_promotion"):
+                promotion_price = rubles(current_price)
+
+            row = [
+                data.get("normalized_name"),
+                data.get("shop"),
+                data.get("collected_at"),
+                rubles(old_price),
+                promotion_price,
+            ]
+            db.insert("products", [row], column_names=FIELDS)
+            ROWS_WRITTEN.inc()
     finally:
         consumer.close()
 
