@@ -1,8 +1,9 @@
 services:
   kafka:
     image: apache/kafka:3.9.0
+    restart: unless-stopped
     ports:
-      - "29092:29092"
+      - "127.0.0.1:29092:29092"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -15,96 +16,158 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  kafka-init:
+    image: apache/kafka:3.9.0
+    restart: "on-failure:3"
+    command:
+      - sh
+      - -c
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic products.raw --partitions 3 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic products.normalized --partitions 3 --replication-factor 1
+    depends_on:
+      kafka:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.12-alpine
+    restart: unless-stopped
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "127.0.0.1:8123:8123"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: product_monitoring
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "default", "--password", "product_monitoring", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   normalizer:
     build: .
-    command: python3 normalizer.py
-    restart: on-failure
+    command: python3 -m normalizer.worker
+    restart: unless-stopped
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      RAW_PRODUCTS_TOPIC: products.raw
+      NORMALIZED_PRODUCTS_TOPIC: products.normalized
       REDIS_URL: redis://redis:6379/0
       METRICS_PORT: 8002
     depends_on:
-      - kafka
-      - redis
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      catalog-loader:
+        condition: service_completed_successfully
 
   catalog-loader:
     build: .
-    command: python3 catalog_loader.py /app/catalog/catalog.jsonl
-    profiles: [catalog]
+    restart: "on-failure:3"
+    command: python3 -m scripts.catalog_loader /app/catalog/catalog.jsonl
     environment:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./catalog:/app/catalog:ro
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 
   clickhouse-sink:
     build: .
-    command: python3 clickhouse_sink.py
-    restart: on-failure
+    command: python3 -m services.clickhouse_sink
+    restart: unless-stopped
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      NORMALIZED_PRODUCTS_TOPIC: products.normalized
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: product_monitoring
       METRICS_PORT: 8003
     depends_on:
-      - kafka
-      - clickhouse
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('localhost', 8003), 2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   api:
     build: .
-    command: uvicorn api:app --host 0.0.0.0 --port 8080
-    restart: on-failure
+    command: uvicorn services.api:app --host 0.0.0.0 --port 8080
+    restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: product_monitoring
     depends_on:
-      - clickhouse
+      clickhouse:
+        condition: service_healthy
+      clickhouse-sink:
+        condition: service_healthy
 
   scraper-lenta:
     build: .
-    command: python3 tmp.py
-    restart: on-failure
+    command: python3 -m scrapers.lenta
+    restart: unless-stopped
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      RAW_PRODUCTS_TOPIC: products.raw
       METRICS_PORT: 8001
       SCRAPE_INTERVAL_SECONDS: 3600
+      SCRAPER_PRODUCT_LIMIT: 20
     depends_on:
-      - kafka
+      kafka-init:
+        condition: service_completed_successfully
 
   prometheus:
     image: prom/prometheus:v2.54.1
+    restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
-    depends_on:
-      - normalizer
-      - clickhouse-sink
-      - api
-      - scraper-lenta
 
 volumes:
   clickhouse_data:
+  kafka_data:
   prometheus_data:
   redis_data:
