@@ -166,7 +166,8 @@ def extract_attributes(product):
     measurements = []
     for item in MEASUREMENT_PATTERN.finditer(measurement_text):
         value, unit = _measurement(item["value"], item["unit"])
-        if value == 0 or item["unit"] == "G":
+        compact_value = re.sub(r"\s+", "", item.group(0)).lower()
+        if value == 0 or re.fullmatch(r"[2-6]g", compact_value):
             continue
         measurement = {"value": value, "unit": unit}
         if measurement not in measurements:
@@ -224,7 +225,7 @@ def _block_values(attributes):
     if brand:
         for item in attributes.get("measurements", []):
             values.append("brand_size:" + brand + ":" + _measurement_key(item))
-    if len(values) == 1 and name:
+    if name:
         tokens = sorted(name.split(), key=lambda x: (-len(x), x))
         long_tokens = [token for token in tokens if len(token) >= 5][:3]
         for token in long_tokens:
@@ -480,6 +481,24 @@ def _resolved(cache, source, product, method, score, evidence=None):
     return _identity(product, method, score, status, evidence)
 
 
+def _remove_old_pending_product(cache, source_key, pending_product, product_id):
+    if not pending_product or pending_product["canonical_product_id"] == product_id:
+        return
+    pending_id = pending_product["canonical_product_id"]
+    for key, value in cache.hgetall(PENDING_MATCHES_KEY).items():
+        if key == source_key:
+            continue
+        try:
+            if json.loads(value).get("product_id") == pending_id:
+                return
+        except Exception:
+            continue
+    cache.hdel(CANONICAL_PRODUCTS_KEY, pending_id)
+    for value in pending_product.get("gtins", []):
+        if cache.hget(GTIN_TO_PRODUCT_KEY, value) == pending_id:
+            cache.hdel(GTIN_TO_PRODUCT_KEY, value)
+
+
 def _quarantine(cache, source, attributes, ids, conflicts=None):
     source_key = make_source_key(source)
     product_id = next((value for value in ids.values() if value), None)
@@ -601,6 +620,9 @@ def resolve_identity(source, cache):
             return _identity(exact_product, "gtin", 1.0, "provisional", evidence)
         method = "gtin" if gtin_id else "source_id" if source_id else "confirmed_alias"
         score = 1.0 if method != "confirmed_alias" else 0.99
+        _remove_old_pending_product(
+            cache, source_key, pending_product, exact_product["canonical_product_id"]
+        )
         return _resolved(cache, source, exact_product, method, score, evidence)
 
     if pending_product:
@@ -684,13 +706,16 @@ def resolve_identity(source, cache):
             field in fields for field in ["brand", "model", "measurements"]
         )
         same_name = best["evidence"].get("same_name_tokens", False)
-        enough = has_attributes or (same_name and len(attributes["name"].split()) >= 2)
+        enough = has_attributes or (same_name and len(attributes["name"].split()) >= 3)
 
     second = candidates[1] if len(candidates) > 1 else None
     ambiguous = second and best["score"] - second["score"] < 0.05
 
     if best and best["score"] >= AUTO_MATCH_SCORE and enough and not ambiguous:
         product = load_product(cache, best["canonical_product_id"])
+        _remove_old_pending_product(
+            cache, source_key, pending_product, product["canonical_product_id"]
+        )
         return _resolved(
             cache, source, product, "attribute_match", best["score"], best["evidence"]
         )

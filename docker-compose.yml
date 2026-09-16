@@ -1,3 +1,17 @@
+x-scraper: &scraper
+  build: .
+  restart: unless-stopped
+  environment:
+    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    RAW_PRODUCTS_TOPIC: products.raw
+    METRICS_PORT: 8001
+    SCRAPE_INTERVAL_SECONDS: ${SCRAPE_INTERVAL_SECONDS:-600}
+    REQUEST_DELAY_SECONDS: ${REQUEST_DELAY_SECONDS:-2}
+    SCRAPER_PRODUCT_LIMIT: 20
+  depends_on:
+    kafka-init:
+      condition: service_completed_successfully
+
 services:
   kafka:
     image: apache/kafka:3.9.0
@@ -144,18 +158,40 @@ services:
         condition: service_healthy
 
   scraper-lenta:
-    build: .
+    <<: *scraper
     command: python3 -m scrapers.lenta
-    restart: unless-stopped
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      RAW_PRODUCTS_TOPIC: products.raw
-      METRICS_PORT: 8001
-      SCRAPE_INTERVAL_SECONDS: 3600
-      SCRAPER_PRODUCT_LIMIT: 20
-    depends_on:
-      kafka-init:
-        condition: service_completed_successfully
+
+  scraper-podruzhka:
+    <<: *scraper
+    command: python3 -m scrapers.podruzhka
+
+  scraper-rivegosh:
+    <<: *scraper
+    command: python3 -m scrapers.rivegosh
+
+  scraper-iledebeaute:
+    <<: *scraper
+    command: python3 -m scrapers.iledebeaute
+
+  scraper-mvideo:
+    <<: *scraper
+    command: python3 -m scrapers.mvideo
+
+  scraper-citilink:
+    <<: *scraper
+    command: python3 -m scrapers.citilink
+
+  scraper-holodilnik:
+    <<: *scraper
+    command: python3 -m scrapers.holodilnik
+
+  scraper-magnit:
+    <<: *scraper
+    command: python3 -m scrapers.magnit
+
+  scraper-pyaterochka:
+    <<: *scraper
+    command: python3 -m scrapers.pyaterochka
 
   prometheus:
     image: prom/prometheus:v2.54.1

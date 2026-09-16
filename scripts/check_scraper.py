@@ -2,11 +2,27 @@ import argparse
 import json
 
 from scrapers.base import validate_product
+from scrapers.citilink import CitilinkScraper
+from scrapers.holodilnik import HolodilnikScraper
+from scrapers.iledebeaute import IleDeBeauteScraper
 from scrapers.lenta import LentaScraper
+from scrapers.magnit import MagnitScraper
+from scrapers.mvideo import MVideoScraper
+from scrapers.podruzhka import PodruzhkaScraper
+from scrapers.pyaterochka import PyaterochkaScraper
+from scrapers.rivegosh import RiveGoshScraper
 
 
 SCRAPERS = {
+    "citilink": CitilinkScraper,
+    "holodilnik": HolodilnikScraper,
+    "iledebeaute": IleDeBeauteScraper,
     "lenta": LentaScraper,
+    "magnit": MagnitScraper,
+    "mvideo": MVideoScraper,
+    "podruzhka": PodruzhkaScraper,
+    "pyaterochka": PyaterochkaScraper,
+    "rivegosh": RiveGoshScraper,
 }
 
 

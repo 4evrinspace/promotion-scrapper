@@ -5,7 +5,15 @@ scrape_configs:
   - job_name: scrapers
     static_configs:
       - targets:
+          - "scraper-citilink:8001"
+          - "scraper-holodilnik:8001"
+          - "scraper-iledebeaute:8001"
           - "scraper-lenta:8001"
+          - "scraper-magnit:8001"
+          - "scraper-mvideo:8001"
+          - "scraper-podruzhka:8001"
+          - "scraper-pyaterochka:8001"
+          - "scraper-rivegosh:8001"
   - job_name: normalizer
     static_configs:
       - targets: ["normalizer:8002"]

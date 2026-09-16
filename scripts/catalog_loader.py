@@ -193,6 +193,12 @@ def validate_catalog(entries):
 
 def replace_catalog(cache, entries):
     product_ids = {entry["product"]["canonical_product_id"] for entry in entries}
+    catalog_gtins = {}
+    for entry in entries:
+        product = entry["product"]
+        for gtin in product["gtins"]:
+            catalog_gtins[gtin] = product["canonical_product_id"]
+
     old_gtins = cache.hgetall(GTIN_TO_PRODUCT_KEY)
     old_products = cache.hgetall(CANONICAL_PRODUCTS_KEY)
     pending = cache.hgetall(PENDING_MATCHES_KEY)
@@ -233,6 +239,7 @@ def replace_catalog(cache, entries):
                 pipe.hdel(CANONICAL_PRODUCTS_KEY, old_id)
 
     pending_ids = set()
+    runtime_ids = set()
     for source_key, value in pending.items():
         try:
             item = json.loads(value)
@@ -257,6 +264,19 @@ def replace_catalog(cache, entries):
             pipe.hdel(PENDING_MATCHES_KEY, source_key)
             continue
         pending_ids.add(pending_id)
+
+        product_status = pending_product.get("status")
+        valid_runtime_product = (
+            pending_product.get("canonical_product_id") == pending_id
+            and isinstance(pending_product.get("canonical_name"), str)
+            and bool(pending_product.get("canonical_name").strip())
+            and isinstance(pending_product.get("attributes"), dict)
+            and isinstance(pending_product.get("gtins"), list)
+            and product_status in ["provisional", "review", "quarantine"]
+        )
+        if valid_runtime_product and item.get("status") == product_status:
+            runtime_ids.add(pending_id)
+
         candidates = item.get("candidates", [])
         filtered = []
         for candidate in candidates:
@@ -287,6 +307,16 @@ def replace_catalog(cache, entries):
             and product_id not in merge_ids
         ):
             pipe.hdel(CANONICAL_PRODUCTS_KEY, product_id)
+
+    for gtin, product_id in old_gtins.items():
+        if gtin in catalog_gtins or product_id not in runtime_ids:
+            continue
+        product = valid_old_products.get(product_id)
+        if not product or gtin not in product.get("gtins", []):
+            continue
+        if get_gtin({"gtin_raw": gtin}) != gtin:
+            continue
+        pipe.hset(GTIN_TO_PRODUCT_KEY, gtin, product_id)
 
     for entry in entries:
         product = entry["product"]

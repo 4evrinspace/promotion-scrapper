@@ -35,28 +35,31 @@ def price(value):
         return None
     text = str(value).lower().replace("\u00a0", " ").strip()
     text = re.sub(r"[-+]?\d+(?:[,.]\d+)?\s*%", "", text)
-    decimal = re.search(r"[,.](\d{1,2})(?=\D*$)", text)
+    kopecks_match = re.search(r"(\d{1,2})\s*коп", text)
+    currency_match = re.search(
+        r"([0-9][0-9\s.,]*?)\s*(?:₽|руб(?:\.|ль|ля|лей)?|р\.)(?=\s|$|/)",
+        text,
+    )
+    if currency_match:
+        amount = currency_match.group(1).strip()
+        if kopecks_match:
+            rubles = re.sub(r"\D", "", amount) or "0"
+            return int(rubles) * 100 + int(kopecks_match.group(1))
+        return _price_number(amount)
+    if kopecks_match:
+        return int(kopecks_match.group(1))
+
+    number = re.search(r"[0-9][0-9\s.,]*", text)
+    return _price_number(number.group(0).strip()) if number else None
+
+
+def _price_number(text):
+    decimal = re.search(r"[,.]([0-9]{1,2})$", text)
     if decimal:
         rubles = re.sub(r"\D", "", text[:decimal.start()]) or "0"
         kopecks = (decimal.group(1) + "0")[:2]
         return int(rubles) * 100 + int(kopecks)
-
-    kopecks_match = re.search(r"(\d{1,2})\s*коп", text)
-    rubles_match = re.search(
-        r"(\d(?:[\d\s]*\d)?)\s*(?:руб(?:\.|\u043bь|\u043bя|\u043bей)?|р\.?)", text
-    )
-    if rubles_match:
-        rubles = re.sub(r"\D", "", rubles_match.group(1))
-        kopecks = kopecks_match.group(1) if kopecks_match else "0"
-        return int(rubles) * 100 + int(kopecks)
-    symbol_match = re.search(r"(\d(?:[\d\s]*\d)?)\s*₽", text)
-    if symbol_match and kopecks_match:
-        rubles = re.sub(r"\D", "", symbol_match.group(1))
-        return int(rubles) * 100 + int(kopecks_match.group(1))
-    if kopecks_match:
-        return int(kopecks_match.group(1))
-
-    numbers = re.findall(r"\d+", text)
+    numbers = re.findall(r"[0-9]+", text)
     if not numbers:
         return None
     if len(numbers) > 1 and len(numbers[-1]) <= 2:

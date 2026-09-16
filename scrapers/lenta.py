@@ -1,16 +1,19 @@
 import json
-import os
 import re
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from scrapers.base import StoreScraper, page_parsed, raw_product, scraper_error
+from scrapers.base import (
+    StoreScraper,
+    price_number,
+    raw_product,
+    scraper_error,
+)
 
 
 BASE_URL = "https://lenta.com"
 SITEMAP_URL = urljoin(BASE_URL, "/sitemap/sitemap_index.xml")
-REQUEST_TIMEOUT_SECONDS = 30
 SHOP = "lenta"
 
 
@@ -117,9 +120,7 @@ class LentaScraper(StoreScraper):
     base_url = BASE_URL
 
     def request_xml(self, url):
-        r = self.get_session().get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-        r.raise_for_status()
-        return BeautifulSoup(r.text, "xml")
+        return BeautifulSoup(self.fetch(url), "xml")
 
     def get_sitemap_urls(self, sitemap_url, limit=None):
         sitemap = self.request_xml(sitemap_url)
@@ -161,9 +162,7 @@ class LentaScraper(StoreScraper):
 
     def parse_product(self, url):
         try:
-            r = self.get_session().get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-            r.raise_for_status()
-            soup = BeautifulSoup(r.text, "lxml")
+            soup = BeautifulSoup(self.fetch(url), "lxml")
             price_block = soup.select_one('[automation-id="product-price"]')
             old_price = text_of(
                 price_block.select_one(
@@ -181,7 +180,14 @@ class LentaScraper(StoreScraper):
             if not name:
                 name = structured["name"]
 
-            page_parsed(self.shop)
+            current_number = price_number(current_price)
+            old_number = price_number(old_price)
+            if (
+                current_number is None
+                or old_number is None
+                or old_number <= current_number
+            ):
+                return None
             return raw_product(
                 self.shop,
                 url,
@@ -196,8 +202,7 @@ class LentaScraper(StoreScraper):
             return None
 
     def scrape_products(self, limit=None):
-        if limit is None:
-            limit = int(os.getenv("SCRAPER_PRODUCT_LIMIT"))
+        limit = self.get_limit(limit)
         product_urls = list(
             dict.fromkeys(self.get_sitemap_urls(SITEMAP_URL, limit))
         )[:limit]
