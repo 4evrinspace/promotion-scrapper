@@ -1,5 +1,0 @@
-﻿category,products,price_states,observations,discount_mean,discount_median,discount_p25,discount_p75,discount_p95,discount_max,price_median
-"('prod_b3d62f832d62098d', 'magnit')",46,46,214,40.19,40.0,26.14,49.67,73.86,90.0,558.5
-"('prod_b12b5621b7e3f2e3', 'mvideo')",16,16,112,32.85,32.53,20.98,43.27,62.94,75.13,2092.5
-"('prod_af7525fc331e0488', 'holodilnik')",19,19,93,21.11,16.44,8.83,25.32,41.2,60.54,24999.0
-"('prod_b24e820895125a81', 'mvideo')",13,13,81,14.74,12.5,5.03,19.25,35.09,35.14,189.99

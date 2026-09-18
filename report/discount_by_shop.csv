@@ -1,7 +1,0 @@
-﻿shop,products,price_states,observations,discount_mean,discount_median,discount_p25,discount_p75,discount_p95,discount_max,price_median
-"('prod_ab4d5c21c5a5bedc', 'podruzhka')",17,17,68,46.04,46.65,35.86,55.79,71.11,82.95,642.0
-"('prod_ad82533ff733df92', 'iledebeaute')",15,15,60,38.41,36.09,29.99,40.03,65.5,90.0,2240.0
-"('prod_937bca8189695718', 'lenta')",13,13,73,31.29,32.73,5.08,41.54,73.86,73.86,169.99
-"('prod_b3d62f832d62098d', 'magnit')",14,14,94,23.87,25.5,18.1,27.44,35.09,35.14,317.49
-"('prod_b24e820895125a81', 'mvideo')",19,19,133,29.87,25.15,9.31,43.56,62.0,75.13,2169.0
-"('prod_af7525fc331e0488', 'holodilnik')",16,16,72,18.31,15.91,8.39,22.75,35.57,39.06,28749.0
