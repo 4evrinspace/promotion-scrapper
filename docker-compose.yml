@@ -157,6 +157,25 @@ services:
       clickhouse-sink:
         condition: service_healthy
 
+  analyzer:
+      build: .
+      command: python3 -m analyzer.run_service
+      restart: unless-stopped
+      environment:
+        CLICKHOUSE_HOST: clickhouse
+        CLICKHOUSE_PORT: 8123
+        CLICKHOUSE_USER: default
+        CLICKHOUSE_PASSWORD: product_monitoring
+        ANALYZER_INTERVAL_SECONDS: ${ANALYZER_INTERVAL_SECONDS:-3600}
+        ANALYZER_OUTPUT_DIR: /app/report
+      volumes:
+        - ./report:/app/report
+      depends_on:
+        clickhouse:
+          condition: service_healthy
+        clickhouse-sink:
+          condition: service_healthy
+
   scraper-lenta:
     <<: *scraper
     command: python3 -m scrapers.lenta
